@@ -1,0 +1,56 @@
+name: Deploy to AWS
+
+on:
+  push:
+    branches:
+      - main
+
+jobs:
+  check-changes:
+    name: Check what changed
+    runs-on: ubuntu-latest
+    outputs:
+      backend: ${{ steps.filter.outputs.backend }}
+      frontend: ${{ steps.filter.outputs.frontend }}
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v3
+
+      - name: Check changed files
+        uses: dorny/paths-filter@v2
+        id: filter
+        with:
+          filters: |
+            backend:
+              - 'backend/**'
+            frontend:
+              - 'frontend/**'
+
+  deploy-backend:
+    name: Deploy Backend
+    needs: check-changes
+    if: needs.check-changes.outputs.backend == 'true'
+    uses: ./.github/workflows/deploy-backend.yml
+    secrets: inherit
+
+  deploy-frontend:
+    name: Deploy Frontend
+    needs: check-changes
+    if: needs.check-changes.outputs.frontend == 'true'
+    uses: ./.github/workflows/deploy-frontend.yml
+    secrets: inherit
+
+  notify:
+    name: Notify Deployment Status
+    runs-on: ubuntu-latest
+    needs: [deploy-backend, deploy-frontend]
+    if: always()
+
+    steps:
+      - name: Deployment Summary
+        run: |
+          echo "===== Deployment Summary ====="
+          echo "Backend deployed: ${{ needs.deploy-backend.result }}"
+          echo "Frontend deployed: ${{ needs.deploy-frontend.result }}"
+          echo "=============================="
