@@ -29,13 +29,22 @@ jobs:
           cd backend
           npm install --production
 
-      - name: Zip backend code
+      - name: Zip backend code (EC2)
         run: |
           zip -r Printing_Website_AWS-master.zip backend/ frontend/ deploy.sh -x "*.git*" -x "node_modules/*" -x "frontend/node_modules/*"
 
-      - name: Upload zip to S3
+      - name: Upload EC2 zip to S3
         run: |
           aws s3 cp Printing_Website_AWS-master.zip s3://printshop-app-code/Printing_Website_AWS-master.zip
+
+      - name: Zip Lambda code
+        run: |
+          cd backend
+          zip -r ../function.zip lambda.js db.js package.json node_modules/
+
+      - name: Upload Lambda zip to S3
+        run: |
+          aws s3 cp function.zip s3://lambda-bucket-testing-tf/function.zip
 
       - name: Trigger ASG Instance Refresh
         run: |
