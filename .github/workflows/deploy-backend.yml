@@ -1,7 +1,7 @@
 name: Deploy Backend
 
 on:
-  workflow_call:  # allows this to be called from main deploy.yml
+  workflow_call:
 
 jobs:
   deploy:
@@ -10,64 +10,105 @@ jobs:
 
     steps:
       - name: Checkout code
-        uses: actions/checkout@v3
+        uses: actions/checkout@v4
 
       - name: Configure AWS credentials
-        uses: aws-actions/configure-aws-credentials@v2
+        uses: aws-actions/configure-aws-credentials@v4
         with:
-          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-access-key-id:     ${{ secrets.AWS_ACCESS_KEY_ID }}
           aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
           aws-region: us-east-1
 
       - name: Setup Node.js
-        uses: actions/setup-node@v3
+        uses: actions/setup-node@v4
         with:
           node-version: 18
+          cache: npm
+          cache-dependency-path: backend/package-lock.json
 
       - name: Install dependencies
         run: |
           cd backend
           npm install --production
 
-      - name: Zip backend code (EC2)
+      - name: Zip EC2 backend code
         run: |
-          zip -r Printing_Website_AWS-master.zip backend/ frontend/ deploy.sh -x "*.git*" -x "node_modules/*" -x "frontend/node_modules/*"
+          zip -r Printing_Website_AWS-master.zip \
+            backend/ frontend/ deploy.sh \
+            --exclude "*.git*" \
+            --exclude "*/node_modules/*" \
+            --exclude "backend/node_modules/*" \
+            --exclude "frontend/node_modules/*" \
+            --exclude "frontend/build/*"
 
       - name: Upload EC2 zip to S3
         run: |
-          aws s3 cp Printing_Website_AWS-master.zip s3://printshop-app-code/Printing_Website_AWS-master.zip
+          aws s3 cp Printing_Website_AWS-master.zip \
+            s3://printshop-app-code/Printing_Website_AWS-master.zip
 
       - name: Zip Lambda code
         run: |
           cd backend
-          zip -r ../function.zip lambda.js db.js package.json node_modules/
+          zip -r ../function.zip \
+            lambda.js db.js events.js emailHandler.js orderProcessor.js \
+            package.json node_modules/
 
       - name: Upload Lambda zip to S3
         run: |
-          aws s3 cp function.zip s3://lambda-bucket-testing-tf/function.zip
+          aws s3 cp function.zip s3://printshop-app-code/function.zip
+
+      - name: Update Lambda function code
+        run: |
+          aws lambda update-function-code \
+            --function-name printshop-app \
+            --s3-bucket printshop-app-code \
+            --s3-key function.zip \
+            --region us-east-1
+
+          aws lambda update-function-code \
+            --function-name email-handler \
+            --s3-bucket printshop-app-code \
+            --s3-key function.zip \
+            --region us-east-1
+
+          aws lambda update-function-code \
+            --function-name order-processor \
+            --s3-bucket printshop-app-code \
+            --s3-key function.zip \
+            --region us-east-1
 
       - name: Trigger ASG Instance Refresh
         run: |
-          aws autoscaling start-instance-refresh \
+          REFRESH_ID=$(aws autoscaling start-instance-refresh \
             --auto-scaling-group-name asg-for-ec2 \
             --preferences '{"MinHealthyPercentage": 50}' \
-            --region us-east-1
+            --region us-east-1 \
+            --query 'InstanceRefreshId' \
+            --output text)
+          echo "Instance refresh started: $REFRESH_ID"
+          echo "REFRESH_ID=$REFRESH_ID" >> $GITHUB_ENV
 
-      - name: Wait for Instance Refresh to complete
+      - name: Wait for Instance Refresh
+        timeout-minutes: 15
         run: |
-          echo "Waiting for instance refresh..."
+          echo "Waiting for instance refresh $REFRESH_ID..."
           while true; do
             STATUS=$(aws autoscaling describe-instance-refreshes \
               --auto-scaling-group-name asg-for-ec2 \
               --region us-east-1 \
               --query 'InstanceRefreshes[0].Status' \
               --output text)
-            echo "Status: $STATUS"
+            PCT=$(aws autoscaling describe-instance-refreshes \
+              --auto-scaling-group-name asg-for-ec2 \
+              --region us-east-1 \
+              --query 'InstanceRefreshes[0].PercentageComplete' \
+              --output text)
+            echo "Status: $STATUS | Progress: $PCT%"
             if [ "$STATUS" = "Successful" ]; then
-              echo "Instance refresh completed successfully!"
+              echo "Instance refresh completed ✅"
               break
             elif [ "$STATUS" = "Failed" ] || [ "$STATUS" = "Cancelled" ]; then
-              echo "Instance refresh failed!"
+              echo "Instance refresh failed ❌"
               exit 1
             fi
             sleep 30

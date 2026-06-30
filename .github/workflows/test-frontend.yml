@@ -1,0 +1,60 @@
+name: Test Frontend
+
+on:
+  workflow_call:
+
+jobs:
+  test:
+    name: Lint and Test Frontend
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 18
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Install dependencies
+        run: |
+          cd frontend
+          npm install
+
+      - name: Check required files exist
+        run: |
+          echo "Checking required files..."
+          test -f frontend/src/App.js       || (echo "App.js missing!" && exit 1)
+          test -f frontend/src/index.js     || (echo "index.js missing!" && exit 1)
+          test -f frontend/public/index.html || (echo "index.html missing!" && exit 1)
+          test -f frontend/package.json     || (echo "package.json missing!" && exit 1)
+          echo "All required files present ✅"
+
+      - name: Check for syntax errors
+        run: |
+          echo "Checking JS syntax..."
+          node --check frontend/src/index.js
+          echo "No syntax errors ✅"
+
+      - name: Verify API_URL is used
+        run: |
+          echo "Checking REACT_APP_API_URL usage..."
+          grep -r "REACT_APP_API_URL" frontend/src/ || (echo "REACT_APP_API_URL not used in code!" && exit 1)
+          echo "REACT_APP_API_URL found ✅"
+
+      - name: Test build
+        run: |
+          cd frontend
+          npm run build
+        env:
+          REACT_APP_API_URL: http://test-placeholder.example.com
+
+      - name: Verify build output
+        run: |
+          echo "Checking build output..."
+          test -f frontend/build/index.html || (echo "Build failed - index.html missing!" && exit 1)
+          test -d frontend/build/static     || (echo "Build failed - static folder missing!" && exit 1)
+          echo "Build output verified ✅"

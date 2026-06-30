@@ -1,5 +1,6 @@
 const mysql = require('mysql2/promise');
 const { SecretsManagerClient, GetSecretValueCommand } = require('@aws-sdk/client-secrets-manager');
+const { publishEvent } = require('./events');
 
 let pool;
 
@@ -132,6 +133,18 @@ async function createOrder({ customer_name, email, phone, product_id, quantity, 
     'INSERT INTO orders (customer_name, email, phone, product_id, quantity, notes) VALUES (?, ?, ?, ?, ?, ?)',
     [customer_name, email, phone || null, product_id, quantity || 1, notes || null]
   );
+
+  // Publish event to SNS — triggers email handler and order processor
+  await publishEvent('ORDER_PLACED', {
+    orderId: result.insertId,
+    customerName: customer_name,
+    customerEmail: email,
+    phone: phone || null,
+    productId: product_id,
+    quantity: quantity || 1,
+    notes: notes || null,
+  });
+
   return result.insertId;
 }
 

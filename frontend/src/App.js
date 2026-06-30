@@ -51,8 +51,8 @@ function Products() {
   useEffect(() => {
     fetch(`${API}/api/categories`)
       .then(r => r.json())
-      .then(setCategories)
-      .catch(() => {});
+      .then(data => setCategories(Array.isArray(data) ? data : []))
+      .catch(() => setCategories([]));
   }, []);
 
   useEffect(() => {
@@ -62,8 +62,8 @@ function Products() {
       : `${API}/api/products?category=${activeCategory}`;
     fetch(url)
       .then(r => r.json())
-      .then(data => { setProducts(data); setLoading(false); })
-      .catch(() => setLoading(false));
+      .then(data => { setProducts(Array.isArray(data) ? data : []); setLoading(false); })
+      .catch(() => { setProducts([]); setLoading(false); });
   }, [activeCategory]);
 
   return (
@@ -234,8 +234,8 @@ function OrderForm() {
   useEffect(() => {
     fetch(`${API}/api/products`)
       .then(r => r.json())
-      .then(setProducts)
-      .catch(() => {});
+      .then(data => setProducts(Array.isArray(data) ? data : []))
+      .catch(() => setProducts([]));
   }, []);
 
   const handle = e => setForm({ ...form, [e.target.name]: e.target.value });

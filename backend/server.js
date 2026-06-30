@@ -14,7 +14,8 @@ app.get('/api/categories', async (req, res) => {
     const categories = await getCategories();
     res.json(categories);
   } catch (err) {
-    res.status(500).json({ error: 'Failed to fetch categories' });
+    console.error('Categories error:', err.message);
+    res.status(500).json({ error: 'Failed to fetch categories', details: err.message });
   }
 });
 

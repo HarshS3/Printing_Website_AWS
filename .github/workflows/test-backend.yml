@@ -1,0 +1,79 @@
+name: Test Backend
+
+on:
+  workflow_call:
+
+jobs:
+  test:
+    name: Lint and Test Backend
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 18
+          cache: npm
+          cache-dependency-path: backend/package-lock.json
+
+      - name: Install dependencies
+        run: |
+          cd backend
+          npm install
+
+      - name: Check required files exist
+        run: |
+          echo "Checking required files..."
+          test -f backend/server.js    || (echo "server.js missing!" && exit 1)
+          test -f backend/lambda.js    || (echo "lambda.js missing!" && exit 1)
+          test -f backend/db.js        || (echo "db.js missing!" && exit 1)
+          test -f backend/events.js    || (echo "events.js missing!" && exit 1)
+          test -f backend/package.json || (echo "package.json missing!" && exit 1)
+          echo "All required files present ✅"
+
+      - name: Check for syntax errors
+        run: |
+          echo "Checking syntax..."
+          node --check backend/server.js
+          node --check backend/lambda.js
+          node --check backend/db.js
+          node --check backend/events.js
+          echo "No syntax errors ✅"
+
+      - name: Verify package.json dependencies
+        run: |
+          echo "Checking required dependencies..."
+          node -e "
+            const pkg = require('./backend/package.json');
+            const required = ['express','cors','mysql2','dotenv','@aws-sdk/client-secrets-manager','@aws-sdk/client-sns'];
+            const missing = required.filter(d => !pkg.dependencies[d]);
+            if (missing.length) { console.error('Missing:', missing); process.exit(1); }
+            console.log('All dependencies present ✅');
+          "
+
+      - name: Test Lambda handler structure
+        run: |
+          echo "Verifying Lambda handler exports..."
+          node -e "
+            const lambda = require('./backend/lambda.js');
+            if (typeof lambda.handler !== 'function') {
+              console.error('lambda.handler is not a function!');
+              process.exit(1);
+            }
+            console.log('Lambda handler verified ✅');
+          "
+
+      - name: Test API routes exist in Lambda
+        run: |
+          echo "Verifying all routes are handled..."
+          node -e "
+            const fs = require('fs');
+            const code = fs.readFileSync('./backend/lambda.js', 'utf8');
+            const routes = ['/health', '/api/categories', '/api/products', '/api/contact', '/api/order'];
+            const missing = routes.filter(r => !code.includes(r));
+            if (missing.length) { console.error('Missing routes:', missing); process.exit(1); }
+            console.log('All routes present ✅');
+          "

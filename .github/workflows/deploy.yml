@@ -2,23 +2,24 @@ name: Deploy to AWS
 
 on:
   push:
-    branches:
-      - main
+    branches: [main]
+  pull_request:
+    branches: [main]
 
 jobs:
   check-changes:
     name: Check what changed
     runs-on: ubuntu-latest
     outputs:
-      backend: ${{ steps.filter.outputs.backend }}
+      backend:  ${{ steps.filter.outputs.backend }}
       frontend: ${{ steps.filter.outputs.frontend }}
 
     steps:
       - name: Checkout code
-        uses: actions/checkout@v3
+        uses: actions/checkout@v4
 
       - name: Check changed files
-        uses: dorny/paths-filter@v2
+        uses: dorny/paths-filter@v3
         id: filter
         with:
           filters: |
@@ -27,30 +28,77 @@ jobs:
             frontend:
               - 'frontend/**'
 
-  deploy-backend:
-    name: Deploy Backend
+  # ── CI: runs on both PR and push ──────────────────────────────────────────
+  test-backend:
+    name: Test Backend
     needs: check-changes
     if: needs.check-changes.outputs.backend == 'true'
+    uses: ./.github/workflows/test-backend.yml
+    secrets: inherit
+
+  test-frontend:
+    name: Test Frontend
+    needs: check-changes
+    if: needs.check-changes.outputs.frontend == 'true'
+    uses: ./.github/workflows/test-frontend.yml
+    secrets: inherit
+
+  # ── CD: only runs on push to main (after merge) ───────────────────────────
+  deploy-backend:
+    name: Deploy Backend
+    needs: [check-changes, test-backend]
+    if: |
+      github.event_name == 'push' &&
+      github.ref == 'refs/heads/main' &&
+      needs.check-changes.outputs.backend == 'true'
     uses: ./.github/workflows/deploy-backend.yml
     secrets: inherit
 
   deploy-frontend:
     name: Deploy Frontend
-    needs: check-changes
-    if: needs.check-changes.outputs.frontend == 'true'
+    needs: [check-changes, test-frontend]
+    if: |
+      github.event_name == 'push' &&
+      github.ref == 'refs/heads/main' &&
+      needs.check-changes.outputs.frontend == 'true'
     uses: ./.github/workflows/deploy-frontend.yml
     secrets: inherit
 
+  # ── Notify: always runs at end ────────────────────────────────────────────
   notify:
-    name: Notify Deployment Status
+    name: Notify Status
     runs-on: ubuntu-latest
     needs: [deploy-backend, deploy-frontend]
-    if: always()
+    if: always() && github.event_name == 'push' && github.ref == 'refs/heads/main'
 
     steps:
-      - name: Deployment Summary
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id:     ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: us-east-1
+
+      - name: Send SNS notification
         run: |
-          echo "===== Deployment Summary ====="
-          echo "Backend deployed: ${{ needs.deploy-backend.result }}"
-          echo "Frontend deployed: ${{ needs.deploy-frontend.result }}"
-          echo "=============================="
+          BACKEND="${{ needs.deploy-backend.result }}"
+          FRONTEND="${{ needs.deploy-frontend.result }}"
+
+          if [ "$BACKEND" = "failure" ] || [ "$FRONTEND" = "failure" ]; then
+            STATUS="FAILED ❌"
+          elif [ "$BACKEND" = "success" ] || [ "$FRONTEND" = "success" ]; then
+            STATUS="SUCCEEDED ✅"
+          else
+            STATUS="SKIPPED ⏭️"
+          fi
+
+          aws sns publish \
+            --topic-arn ${{ secrets.SNS_TOPIC_ARN }} \
+            --subject "PrintShop Deploy: $STATUS" \
+            --message "Deployment Results:
+          Backend:  $BACKEND
+          Frontend: $FRONTEND
+          Commit:   ${{ github.sha }}
+          Author:   ${{ github.actor }}
+          Run:      ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}" \
+            --region us-east-1
