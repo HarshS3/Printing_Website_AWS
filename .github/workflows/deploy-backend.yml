@@ -89,7 +89,7 @@ jobs:
           echo "REFRESH_ID=$REFRESH_ID" >> $GITHUB_ENV
 
       - name: Wait for Instance Refresh
-        timeout-minutes: 15
+        timeout-minutes: 30
         run: |
           echo "Waiting for instance refresh $REFRESH_ID..."
           while true; do

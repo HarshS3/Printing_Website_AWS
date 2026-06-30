@@ -35,6 +35,17 @@ cp -r build ../backend/public
 
 echo "Starting server..."
 cd /app/backend
-node server.js &
+node server.js > server.log 2>&1 &
+SERVER_PID=$!
 
-echo "Done! App running on port 3000"
+echo "Waiting for server to be healthy..."
+for i in {1..60}; do
+  if curl -f http://localhost:3000/health > /dev/null 2>&1; then
+    echo "✅ Server is healthy!"
+    break
+  fi
+  echo "Attempt $i/60: waiting for server to respond..."
+  sleep 2
+done
+
+echo "Done! App running on port 3000 (PID: $SERVER_PID)"
