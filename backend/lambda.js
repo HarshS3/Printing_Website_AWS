@@ -32,6 +32,15 @@ exports.handler = async (event) => {
       return response(200, { status: 'ok' });
     }
 
+    // GET /api/health/detailed
+    if (method === 'GET' && path === '/api/health/detailed') {
+      return response(200, {
+        status: 'healthy',
+        timestamp: new Date().toISOString(),
+        version: '1.1.0'
+      });
+    }
+
     // GET /api/categories
     if (method === 'GET' && path === '/api/categories') {
       const categories = await getCategories();
